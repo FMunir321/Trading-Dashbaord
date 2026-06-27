@@ -1,0 +1,5 @@
+MetaTrader5
+pandas
+psycopg2-binary
+redis
+python-dotenv

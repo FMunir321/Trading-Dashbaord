@@ -1,0 +1,65 @@
+// prisma/schema.prisma
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id            String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email         String        @unique
+  password_hash String
+  created_at    DateTime      @default(now()) @db.Timestamptz(6)
+  mt5_accounts  MT5Account[]
+}
+
+model MT5Account {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id       String   @db.Uuid
+  login         Int
+  password      String   // encrypted – handle encryption in your app code
+  server        String
+  broker_name   String?
+  investor_mode Boolean  @default(true)
+  last_sync_at  DateTime? @db.Timestamptz(6)
+  created_at    DateTime @default(now()) @db.Timestamptz(6)
+
+  user          User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  trades        Trade[]
+  summary       AccountSummary?
+
+  @@unique([user_id, login, server])
+}
+
+model Trade {
+  id          BigInt    @id @default(autoincrement())
+  account_id  String    @db.Uuid
+  ticket      BigInt
+  symbol      String
+  profit      Decimal?  @db.Decimal(20,8)
+  volume      Decimal?  @db.Decimal(20,8)
+  price       Decimal?  @db.Decimal(20,8)
+  time        DateTime  @db.Timestamptz(6)
+  type        Int?      // 0: buy, 1: sell, etc.
+  // add other optional fields like commission, swap, magic, comment if needed
+
+  account     MT5Account @relation(fields: [account_id], references: [id], onDelete: Cascade)
+
+  @@unique([account_id, ticket])
+}
+
+model AccountSummary {
+  account_id     String   @id @db.Uuid
+  total_profit   Decimal? @default(0) @db.Decimal(20,8)
+  total_trades   Int?     @default(0)
+  winning_trades Int?     @default(0)
+  losing_trades  Int?     @default(0)
+  win_rate       Decimal? @default(0) @db.Decimal(5,2)
+  daily_pnl      Json?    @default("{}")   // JSONB
+  monthly_pnl    Json?    @default("{}")   // JSONB
+  last_updated   DateTime @default(now()) @db.Timestamptz(6)
+
+  account        MT5Account @relation(fields: [account_id], references: [id], onDelete: Cascade)
+}

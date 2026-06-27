@@ -1,0 +1,8 @@
+backend/pythone
+python sync_engine.py
+
+backend/nodejs
+npm run dev
+
+frontend
+npm run dev
