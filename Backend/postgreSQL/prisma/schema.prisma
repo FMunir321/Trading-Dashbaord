@@ -20,9 +20,11 @@ model MT5Account {
   user_id       String   @db.Uuid
   login         Int
   password      String   // encrypted – handle encryption in your app code
+  nickname      String?
   server        String
   broker_name   String?
   investor_mode Boolean  @default(true)
+  current_balance Decimal? @db.Decimal(20,8)
   last_sync_at  DateTime? @db.Timestamptz(6)
   created_at    DateTime @default(now()) @db.Timestamptz(6)
 

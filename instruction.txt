@@ -1,7 +1,11 @@
-backend/pythone
+Backend\postgreSQL
+npx prisma migrate deploy
+npx prisma generate
+
+backend\pythone
 python sync_engine.py
 
-backend/nodejs
+backend\nodejs
 npm run dev
 
 frontend

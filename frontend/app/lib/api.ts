@@ -4,7 +4,9 @@ export interface Account {
   id?: string;
   account_id?: string;
   login: number;
+  nickname?: string | null;
   balance?: number;
+  current_balance?: number;
   status?: string;
   daily_pnl?: Record<string, number | string>;
   monthly_pnl?: Record<string, number | string>;
@@ -158,7 +160,7 @@ export async function fetchDashboardData(token?: string | null) {
       ...account,
       account_id: account.id || account.account_id,
       login: account.login,
-      balance: account.total_profit || 0,
+      balance: account.current_balance || 0,
       status: 'Active',
       daily_pnl: parseNumericMap(account.daily_pnl),
       monthly_pnl: parseNumericMap(account.monthly_pnl),
@@ -229,7 +231,7 @@ export async function fetchAccounts(token?: string | null) {
 }
 
 export async function addAccount(
-  accountData: { login: number; password: string; server: string; broker_name?: string; investor_mode?: boolean },
+  accountData: { login: number; password: string; server: string; broker_name?: string; investor_mode?: boolean; nickname?: string },
   token?: string | null
 ) {
   try {

@@ -168,7 +168,7 @@ export function useDashboard() {
       );
 
       if (selectedAccount) {
-        const balance = selectedAccount.balance || selectedAccount.total_profit || 0;
+        const balance = selectedAccount.balance || selectedAccount.current_balance || 0;
         const pnl = selectedAccount.total_profit || 0;
 
         return {
@@ -181,17 +181,18 @@ export function useDashboard() {
     }
 
     // Fallback: aggregate all accounts
-    const totalBalance = accounts.reduce((sum, account) => {
-      const balance = account.balance || account.total_profit || 0;
+    const totalBalance = accounts.reduce<number>((sum, account) => {
+      const balance = Number(account.balance ?? account.current_balance ?? 0);
       return sum + balance;
     }, 0);
     
-    const totalPnL = accounts.reduce((sum, account) => {
-      if (account.total_profit) {
-        return sum + account.total_profit;
+    const totalPnL = accounts.reduce<number>((sum, account) => {
+      if (account.total_profit !== undefined) {
+        return sum + Number(account.total_profit);
       }
       if (account.daily_pnl) {
-        return sum + Object.values(account.daily_pnl).reduce((acc, value) => acc + value, 0);
+        const pnlValues = Object.values(account.daily_pnl).map((value) => Number(value));
+        return sum + pnlValues.reduce((acc, value) => acc + value, 0);
       }
       return sum;
     }, 0);
@@ -215,6 +216,7 @@ export function useDashboard() {
     server: string;
     broker_name?: string;
     investor_mode?: boolean;
+    nickname?: string;
   }) => {
     if (!token) {
       setError('Not authenticated');

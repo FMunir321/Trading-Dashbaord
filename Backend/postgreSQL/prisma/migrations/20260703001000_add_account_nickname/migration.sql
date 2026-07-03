@@ -1,0 +1,2 @@
+ALTER TABLE "MT5Account"
+ADD COLUMN "nickname" TEXT;

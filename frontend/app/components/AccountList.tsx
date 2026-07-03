@@ -4,9 +4,11 @@ interface Account {
   id?: string;
   account_id?: string;
   login: number;
+  nickname?: string | null;
   balance?: number;
+  current_balance?: number;
   status?: string;
-  daily_pnl?: Record<string, number>;
+  daily_pnl?: Record<string, number | string>;
   total_profit?: number;
   total_trades?: number;
   broker_name?: string;
@@ -39,9 +41,9 @@ export default function AccountList({ accounts, selectedAccountId, onSelectAccou
         {accounts.map(account => {
           const accountId = account.id || account.account_id;
           const isSelected = accountId === selectedAccountId;
-          const balance = account.balance || account.total_profit || 0;
+          const balance = Number(account.balance ?? account.current_balance ?? 0);
           const dailyValues = account.daily_pnl ? Object.values(account.daily_pnl) : [];
-          const latestPnl = dailyValues.length ? dailyValues[dailyValues.length - 1] : 0;
+          const latestPnl = dailyValues.length ? Number(dailyValues[dailyValues.length - 1]) : 0;
 
           return (
             <div
@@ -61,8 +63,8 @@ export default function AccountList({ accounts, selectedAccountId, onSelectAccou
                   )}
                 </div>
                 <div className="text-right">
-                  <p className="text-sm text-slate-500">Status</p>
-                  <p className="text-base font-semibold text-slate-900">{account.status || 'Active'}</p>
+                  <p className="text-sm text-slate-500">Account Nickname</p>
+                  <p className="text-base font-semibold text-slate-900">{account.nickname?.trim() || 'No Nickname'}</p>
                 </div>
               </div>
               <div className="mt-4 grid gap-3 sm:grid-cols-2">

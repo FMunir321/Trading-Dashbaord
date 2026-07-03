@@ -29,8 +29,11 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-DEPOSIT_TYPE = getattr(mt5, 'DEAL_TYPE_DEPOSIT', 8)
-WITHDRAWAL_TYPE = getattr(mt5, 'DEAL_TYPE_WITHDRAWAL', 11)
+BUY_TYPE = getattr(mt5, 'DEAL_TYPE_BUY', 0)
+SELL_TYPE = getattr(mt5, 'DEAL_TYPE_SELL', 1)
+ALLOWED_TRADE_TYPES = {BUY_TYPE, SELL_TYPE}
+HAS_CURRENT_BALANCE_COLUMN = None
+HAS_NICKNAME_COLUMN = None
 
 
 def _derive_key_and_iv(password, salt, key_length=32, iv_length=16):
@@ -69,6 +72,93 @@ def get_account_timezone_offset(server, broker_name):
     if server and 'dooprime' in str(server).lower():
         return timedelta(hours=5)
     return timedelta(0)
+
+
+def has_current_balance_column(conn):
+    global HAS_CURRENT_BALANCE_COLUMN
+
+    if HAS_CURRENT_BALANCE_COLUMN is not None:
+        return HAS_CURRENT_BALANCE_COLUMN
+
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT 1
+            FROM information_schema.columns
+            WHERE table_name = 'MT5Account'
+              AND column_name = 'current_balance'
+            """
+        )
+        HAS_CURRENT_BALANCE_COLUMN = cur.fetchone() is not None
+    finally:
+        cur.close()
+
+    return HAS_CURRENT_BALANCE_COLUMN
+
+
+def has_nickname_column(conn):
+    global HAS_NICKNAME_COLUMN
+
+    if HAS_NICKNAME_COLUMN is not None:
+        return HAS_NICKNAME_COLUMN
+
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT 1
+            FROM information_schema.columns
+            WHERE table_name = 'MT5Account'
+              AND column_name = 'nickname'
+            """
+        )
+        HAS_NICKNAME_COLUMN = cur.fetchone() is not None
+    finally:
+        cur.close()
+
+    return HAS_NICKNAME_COLUMN
+
+
+def persist_current_balance(conn, account_id, current_balance):
+    if current_balance is None or not has_current_balance_column(conn):
+        return False
+
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            UPDATE "MT5Account"
+            SET current_balance = %s
+            WHERE id = %s
+            """,
+            (current_balance, account_id),
+        )
+        conn.commit()
+        return True
+    finally:
+        cur.close()
+
+
+def persist_nickname(conn, account_id, nickname):
+    cleaned_nickname = str(nickname).strip() if nickname is not None else ''
+    if not cleaned_nickname or not has_nickname_column(conn):
+        return False
+
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            UPDATE "MT5Account"
+            SET nickname = %s
+            WHERE id = %s
+            """,
+            (cleaned_nickname, account_id),
+        )
+        conn.commit()
+        return True
+    finally:
+        cur.close()
 
 
 def get_accounts_to_sync():
@@ -199,6 +289,17 @@ def sync_account(account):
         logger.error(f"MT5 login failed for {login}@{server}")
         mt5.shutdown()
         return
+
+    account_info = mt5.account_info()
+    current_balance = None
+    account_nickname = None
+    if account_info is not None and hasattr(account_info, 'balance'):
+        try:
+            current_balance = float(account_info.balance)
+        except (TypeError, ValueError):
+            current_balance = None
+    if account_info is not None and hasattr(account_info, 'name'):
+        account_nickname = account_info.name
     
     if last_sync:
         from_time = last_sync
@@ -209,6 +310,15 @@ def sync_account(account):
     deals = mt5.history_deals_get(from_time, datetime.now())
     if deals is None or len(deals) == 0:
         logger.info(f"No new deals for account {login}")
+        try:
+            conn = psycopg2.connect(DB_DSN)
+            if persist_current_balance(conn, account_id, current_balance):
+                logger.info(f"Updated current balance for account {login}: {current_balance}")
+            if persist_nickname(conn, account_id, account_nickname):
+                logger.info(f"Updated nickname for account {login}: {str(account_nickname).strip()}")
+            conn.close()
+        except Exception as e:
+            logger.error(f"Failed to update account snapshot for account {login}: {e}")
         mt5.shutdown()
         return
     
@@ -222,6 +332,11 @@ def sync_account(account):
     try:
         conn = psycopg2.connect(DB_DSN)
         cur = conn.cursor()
+
+        if persist_current_balance(conn, account_id, current_balance):
+            logger.info(f"Updated current balance for account {login}: {current_balance}")
+        if persist_nickname(conn, account_id, account_nickname):
+            logger.info(f"Updated nickname for account {login}: {str(account_nickname).strip()}")
         
         inserted_trades = []
         inserted_count = 0
@@ -231,7 +346,7 @@ def sync_account(account):
         for _, row in df.iterrows():
             try:
                 deal_type = int(row['type']) if pd.notna(row['type']) else None
-                if deal_type in (DEPOSIT_TYPE, WITHDRAWAL_TYPE):
+                if deal_type not in ALLOWED_TRADE_TYPES:
                     continue
 
                 profit = float(row['profit']) if pd.notna(row['profit']) else 0.0

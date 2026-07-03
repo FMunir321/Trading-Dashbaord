@@ -2,6 +2,42 @@ const router = require('express').Router();
 const { authenticate } = require('../middleware/auth');
 
 module.exports = (pgPool, redis) => {
+  const TRADE_TYPES = [0, 1];
+  let hasCurrentBalanceColumnPromise;
+  let hasNicknameColumnPromise;
+
+  const hasCurrentBalanceColumn = async () => {
+    if (!hasCurrentBalanceColumnPromise) {
+      hasCurrentBalanceColumnPromise = pgPool
+        .query(
+          `SELECT 1
+           FROM information_schema.columns
+           WHERE table_name = 'MT5Account'
+             AND column_name = 'current_balance'`
+        )
+        .then((result) => result.rows.length > 0)
+        .catch(() => false);
+    }
+
+    return hasCurrentBalanceColumnPromise;
+  };
+
+  const hasNicknameColumn = async () => {
+    if (!hasNicknameColumnPromise) {
+      hasNicknameColumnPromise = pgPool
+        .query(
+          `SELECT 1
+           FROM information_schema.columns
+           WHERE table_name = 'MT5Account'
+             AND column_name = 'nickname'`
+        )
+        .then((result) => result.rows.length > 0)
+        .catch(() => false);
+    }
+
+    return hasNicknameColumnPromise;
+  };
+
   // Get dashboard summary
   router.get('/summary', authenticate, async (req, res) => {
     const userId = req.userId;
@@ -17,28 +53,80 @@ module.exports = (pgPool, redis) => {
         }
       }
 
-      // Fetch all account summaries for this user
+      const includeCurrentBalance = await hasCurrentBalanceColumn();
+      const includeNickname = await hasNicknameColumn();
+      const currentBalanceSelect = includeCurrentBalance
+        ? 'COALESCE(a.current_balance, 0)::float as current_balance,'
+        : '0::float as current_balance,';
+      const nicknameSelect = includeNickname
+        ? 'a.nickname as nickname,'
+        : 'NULL::text as nickname,';
+
+      // Fetch account stats using only actual trade deals (BUY/SELL)
       const query = `
         SELECT 
           a.id as account_id,
           a.login,
+          ${nicknameSelect}
           a.broker_name,
           a.investor_mode,
-          COALESCE(s.total_profit, 0) as total_profit,
-          COALESCE(s.total_trades, 0) as total_trades,
-          COALESCE(s.winning_trades, 0) as winning_trades,
-          COALESCE(s.losing_trades, 0) as losing_trades,
-          COALESCE(s.win_rate, 0) as win_rate,
-          s.daily_pnl,
-          s.monthly_pnl,
-          s.last_updated
+          ${currentBalanceSelect}
+          COALESCE(stats.total_profit, 0) as total_profit,
+          COALESCE(stats.total_trades, 0) as total_trades,
+          COALESCE(stats.winning_trades, 0) as winning_trades,
+          COALESCE(stats.losing_trades, 0) as losing_trades,
+          COALESCE(stats.win_rate, 0) as win_rate,
+          COALESCE(stats.daily_pnl, '{}'::jsonb) as daily_pnl,
+          COALESCE(stats.monthly_pnl, '{}'::jsonb) as monthly_pnl,
+          stats.last_updated
         FROM "MT5Account" a
-        LEFT JOIN "AccountSummary" s ON a.id = s.account_id
+        LEFT JOIN LATERAL (
+          SELECT
+            COALESCE(SUM(t.profit), 0)::float as total_profit,
+            COUNT(*)::int as total_trades,
+            COUNT(*) FILTER (WHERE t.profit > 0)::int as winning_trades,
+            COUNT(*) FILTER (WHERE t.profit < 0)::int as losing_trades,
+            COALESCE(
+              ROUND(
+                ((COUNT(*) FILTER (WHERE t.profit > 0))::numeric / NULLIF(COUNT(*), 0)::numeric) * 100,
+                2
+              ),
+              0
+            )::float as win_rate,
+            COALESCE((
+              SELECT jsonb_object_agg(day_key, day_profit)
+              FROM (
+                SELECT
+                  TO_CHAR(t2.time::date, 'YYYY-MM-DD') as day_key,
+                  ROUND(SUM(t2.profit)::numeric, 2)::float as day_profit
+                FROM "Trade" t2
+                WHERE t2.account_id = a.id
+                  AND t2.type = ANY($2::int[])
+                GROUP BY day_key
+              ) day_stats
+            ), '{}'::jsonb) as daily_pnl,
+            COALESCE((
+              SELECT jsonb_object_agg(month_key, month_profit)
+              FROM (
+                SELECT
+                  TO_CHAR(t3.time::date, 'YYYY-MM') as month_key,
+                  ROUND(SUM(t3.profit)::numeric, 2)::float as month_profit
+                FROM "Trade" t3
+                WHERE t3.account_id = a.id
+                  AND t3.type = ANY($2::int[])
+                GROUP BY month_key
+              ) month_stats
+            ), '{}'::jsonb) as monthly_pnl,
+            MAX(t.time) as last_updated
+          FROM "Trade" t
+          WHERE t.account_id = a.id
+            AND t.type = ANY($2::int[])
+        ) stats ON true
         WHERE a.user_id = $1
         ORDER BY a.created_at DESC
       `;
       
-      const result = await pgPool.query(query, [userId]);
+      const result = await pgPool.query(query, [userId, TRADE_TYPES]);
       
       // Calculate aggregated metrics
       const accounts = result.rows;
@@ -55,6 +143,7 @@ module.exports = (pgPool, redis) => {
         accountCount: accounts.length,
         accounts: accounts.map(r => ({
           ...r,
+          current_balance: parseFloat(r.current_balance || 0),
           total_profit: parseFloat(r.total_profit || 0),
           total_trades: parseInt(r.total_trades || 0),
           win_rate: parseFloat(r.win_rate || 0)
@@ -93,15 +182,16 @@ module.exports = (pgPool, redis) => {
         `SELECT id, ticket, symbol, profit, volume, price, time, type 
          FROM "Trade" 
          WHERE account_id = $1 
+           AND type = ANY($4::int[])
          ORDER BY time DESC 
          LIMIT $2 OFFSET $3`,
-        [accountId, parseInt(limit), parseInt(offset)]
+        [accountId, parseInt(limit), parseInt(offset), TRADE_TYPES]
       );
       
       // Get total count
       const countResult = await pgPool.query(
-        'SELECT COUNT(*) FROM "Trade" WHERE account_id = $1',
-        [accountId]
+        'SELECT COUNT(*) FROM "Trade" WHERE account_id = $1 AND type = ANY($2::int[])',
+        [accountId, TRADE_TYPES]
       );
       
       res.json({
@@ -160,9 +250,10 @@ module.exports = (pgPool, redis) => {
          WHERE account_id = ANY($1)
            AND time >= $2
            AND time < $3
+           AND type = ANY($4::int[])
          GROUP BY date
          ORDER BY date ASC`,
-        [accountIds, startDate, endDate]
+        [accountIds, startDate, endDate, TRADE_TYPES]
       );
 
       const dailyPnl = result.rows.reduce((memo, row) => {

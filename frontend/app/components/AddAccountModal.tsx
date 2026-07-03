@@ -9,6 +9,7 @@ interface AddAccountModalProps {
     server: string;
     broker_name?: string;
     investor_mode?: boolean;
+    nickname?: string;
   }) => Promise<boolean>;
   isLoading?: boolean;
 }
@@ -19,6 +20,7 @@ export default function AddAccountModal({ onAdd, isLoading = false }: AddAccount
   const [password, setPassword] = useState('');
   const [server, setServer] = useState('');
   const [brokerName, setBrokerName] = useState('');
+  const [nickname, setNickname] = useState('');
   const [investorMode, setInvestorMode] = useState(false);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -46,6 +48,7 @@ export default function AddAccountModal({ onAdd, isLoading = false }: AddAccount
         server: server.trim(),
         broker_name: brokerName.trim() || undefined,
         investor_mode: investorMode,
+        nickname: nickname.trim() || undefined,
       });
 
       if (success) {
@@ -54,6 +57,7 @@ export default function AddAccountModal({ onAdd, isLoading = false }: AddAccount
         setPassword('');
         setServer('');
         setBrokerName('');
+        setNickname('');
         setInvestorMode(false);
         setError('');
         setIsOpen(false);
@@ -137,6 +141,18 @@ export default function AddAccountModal({ onAdd, isLoading = false }: AddAccount
               />
             </div>
 
+            <div>
+              <label className="block text-sm font-medium text-slate-700">Account Nickname (Optional)</label>
+              <input
+                type="text"
+                value={nickname}
+                onChange={(e) => setNickname(e.target.value)}
+                placeholder="e.g., Main Swing Account"
+                className="mt-2 w-full rounded-3xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-slate-950"
+                disabled={submitting}
+              />
+            </div>
+
             <label className="flex items-center gap-3">
               <input
                 type="checkbox"
@@ -171,6 +187,7 @@ export default function AddAccountModal({ onAdd, isLoading = false }: AddAccount
                   setPassword('');
                   setServer('');
                   setBrokerName('');
+                  setNickname('');
                 }}
                 disabled={submitting}
                 className="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"

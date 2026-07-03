@@ -3,11 +3,55 @@ const { authenticate } = require('../middleware/auth');
 const { encrypt, decrypt } = require('../utils/encryption');
 
 module.exports = (pgPool) => {
+  let hasCurrentBalanceColumnPromise;
+  let hasNicknameColumnPromise;
+
+  const hasCurrentBalanceColumn = async () => {
+    if (!hasCurrentBalanceColumnPromise) {
+      hasCurrentBalanceColumnPromise = pgPool
+        .query(
+          `SELECT 1
+           FROM information_schema.columns
+           WHERE table_name = 'MT5Account'
+             AND column_name = 'current_balance'`
+        )
+        .then((result) => result.rows.length > 0)
+        .catch(() => false);
+    }
+
+    return hasCurrentBalanceColumnPromise;
+  };
+
+  const hasNicknameColumn = async () => {
+    if (!hasNicknameColumnPromise) {
+      hasNicknameColumnPromise = pgPool
+        .query(
+          `SELECT 1
+           FROM information_schema.columns
+           WHERE table_name = 'MT5Account'
+             AND column_name = 'nickname'`
+        )
+        .then((result) => result.rows.length > 0)
+        .catch(() => false);
+    }
+
+    return hasNicknameColumnPromise;
+  };
+
   // Get all accounts for a user
   router.get('/', authenticate, async (req, res) => {
     try {
+      const includeCurrentBalance = await hasCurrentBalanceColumn();
+      const includeNickname = await hasNicknameColumn();
+      const currentBalanceSelect = includeCurrentBalance
+        ? 'current_balance,'
+        : '0::float as current_balance,';
+      const nicknameSelect = includeNickname
+        ? 'nickname,'
+        : 'NULL::text as nickname,';
+
       const result = await pgPool.query(
-        `SELECT id, login, server, broker_name, investor_mode, last_sync_at, created_at 
+        `SELECT id, login, ${nicknameSelect} server, broker_name, investor_mode, ${currentBalanceSelect} last_sync_at, created_at 
          FROM "MT5Account" 
          WHERE user_id = $1 
          ORDER BY created_at DESC`,
@@ -22,7 +66,7 @@ module.exports = (pgPool) => {
 
   // Add new MT5 account
   router.post('/', authenticate, async (req, res) => {
-    const { login, password, server, broker_name, investor_mode } = req.body;
+    const { login, password, server, broker_name, investor_mode, nickname } = req.body;
     
     if (!login || !password || !server) {
       return res.status(400).json({ error: 'Login, password, and server are required' });
@@ -30,13 +74,24 @@ module.exports = (pgPool) => {
 
     try {
       const encryptedPassword = encrypt(password);
+      const includeNickname = await hasNicknameColumn();
+
+      const insertQuery = includeNickname
+        ? `INSERT INTO "MT5Account" 
+           (user_id, login, password, server, broker_name, investor_mode, nickname) 
+           VALUES ($1, $2, $3, $4, $5, $6, $7) 
+           RETURNING id, login, nickname, server, broker_name, investor_mode, created_at`
+        : `INSERT INTO "MT5Account" 
+           (user_id, login, password, server, broker_name, investor_mode) 
+           VALUES ($1, $2, $3, $4, $5, $6) 
+           RETURNING id, login, NULL::text as nickname, server, broker_name, investor_mode, created_at`;
+      const insertParams = includeNickname
+        ? [req.userId, login, encryptedPassword, server, broker_name || null, investor_mode !== false, nickname || null]
+        : [req.userId, login, encryptedPassword, server, broker_name || null, investor_mode !== false];
       
       const result = await pgPool.query(
-        `INSERT INTO "MT5Account" 
-         (user_id, login, password, server, broker_name, investor_mode) 
-         VALUES ($1, $2, $3, $4, $5, $6) 
-         RETURNING id, login, server, broker_name, investor_mode, created_at`,
-        [req.userId, login, encryptedPassword, server, broker_name || null, investor_mode !== false]
+        insertQuery,
+        insertParams
       );
       
       res.status(201).json(result.rows[0]);

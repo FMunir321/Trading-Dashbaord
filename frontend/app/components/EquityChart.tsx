@@ -214,7 +214,7 @@ export default function EquityChart({ accountId, token }: EquityChartProps) {
               ))}
             </div>
           </div>
-
+{/* 
           <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
             <h3 className="text-sm font-semibold text-slate-900">Month details</h3>
             <div className="mt-4 grid gap-3">
@@ -229,7 +229,7 @@ export default function EquityChart({ accountId, token }: EquityChartProps) {
                 </p>
               </div>
             </div>
-          </div>
+          </div> */}
         </div>
       </div>
     </div>
