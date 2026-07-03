@@ -38,6 +38,12 @@ export default function DashboardPage() {
     setIsMounted(true);
   }, []);
 
+  useEffect(() => {
+    if (isMounted && !user) {
+      router.replace('/login');
+    }
+  }, [isMounted, user, router]);
+
   // During hydration, show loading state
   if (!isMounted) {
     return (

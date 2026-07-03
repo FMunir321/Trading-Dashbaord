@@ -223,8 +223,10 @@ export default function EquityChart({ accountId, token }: EquityChartProps) {
                 <p className="mt-2 text-lg font-semibold text-slate-900">{formatCurrency(averageProfit)}</p>
               </div>
               <div className="rounded-3xl border border-slate-200 bg-white p-3">
-                <p className="text-xs uppercase tracking-[0.24em] text-slate-500">Total days in month</p>
-                <p className="mt-2 text-lg font-semibold text-slate-900">{daysInMonth}</p>
+                <p className="text-xs uppercase tracking-[0.24em] text-slate-500">This month profit</p>
+                <p className={`mt-2 text-lg font-semibold ${totalProfit >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                  {formatCurrency(totalProfit)}
+                </p>
               </div>
             </div>
           </div>

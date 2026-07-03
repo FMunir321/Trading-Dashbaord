@@ -19,7 +19,7 @@ load_dotenv()
 # Configuration
 DB_DSN = os.getenv('DATABASE_URL')
 REDIS_URL = os.getenv('REDIS_URL', 'redis://localhost:6379')
-SYNC_INTERVAL = int(os.getenv('SYNC_INTERVAL', 30))
+SYNC_INTERVAL = int(os.getenv('SYNC_INTERVAL', 10))
 ENCRYPTION_KEY = os.getenv('ENCRYPTION_KEY', '01234567890123456789012345678901')
 
 # Setup logging

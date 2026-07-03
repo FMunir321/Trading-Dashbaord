@@ -16,7 +16,7 @@ export interface DashboardSummaryMetrics {
 const LAST_ACCOUNT_KEY = 'trading-last-account';
 
 export function useDashboard() {
-  const { token, user } = useUser();
+  const { token, user, logout } = useUser();
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
   const [trades, setTrades] = useState<Trade[]>([]);
@@ -25,6 +25,15 @@ export function useDashboard() {
   const [error, setError] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const limit = 10;
+
+  const isAuthError = (value: unknown) => {
+    const message = value instanceof Error ? value.message.toLowerCase() : '';
+    return (
+      message.includes('token expired') ||
+      message.includes('invalid token') ||
+      message.includes('authorization token required')
+    );
+  };
 
   // Load accounts from backend
   const loadAccounts = async () => {
@@ -47,6 +56,10 @@ export function useDashboard() {
       }
     } catch (err) {
       console.error('Failed to fetch accounts:', err);
+      if (isAuthError(err)) {
+        logout();
+        return;
+      }
       setError(err instanceof Error ? err.message : 'Failed to fetch accounts');
     } finally {
       setAccountsLoading(false);
@@ -87,6 +100,10 @@ export function useDashboard() {
         }
       } catch (err) {
         if (!active) return;
+        if (isAuthError(err)) {
+          logout();
+          return;
+        }
         const errorMessage = err instanceof Error ? err.message : 'Unable to load dashboard data.';
         setError(errorMessage);
       } finally {
@@ -127,6 +144,10 @@ export function useDashboard() {
         }
       } catch (tradeErr) {
         console.warn('Could not fetch trades:', tradeErr);
+        if (isAuthError(tradeErr)) {
+          logout();
+          return;
+        }
         if (active) {
           setTrades([]);
         }
@@ -205,6 +226,10 @@ export function useDashboard() {
       await loadAccounts();
       return true;
     } catch (err) {
+      if (isAuthError(err)) {
+        logout();
+        return false;
+      }
       const errorMsg = err instanceof Error ? err.message : 'Failed to add account';
       setError(errorMsg);
       return false;
@@ -248,6 +273,10 @@ export function useDashboard() {
 
       return true;
     } catch (err) {
+      if (isAuthError(err)) {
+        logout();
+        return false;
+      }
       const errorMsg = err instanceof Error ? err.message : 'Failed to delete account';
       setError(errorMsg);
       return false;
