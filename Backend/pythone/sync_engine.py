@@ -54,6 +54,12 @@ def resolve_mt5_terminal_path():
 
 
 def initialize_mt5_session(login, password, server):
+    
+    # Sanitize server name - remove trailing numbers and spaces if needed
+    if server and 'XMGlobal' in server:
+        # Try without the space and number
+        server = str(server).strip()
+    
     terminal_path = resolve_mt5_terminal_path()
     init_kwargs = {
         'login': int(login),
