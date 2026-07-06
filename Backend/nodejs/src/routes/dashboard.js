@@ -1,5 +1,6 @@
 const router = require('express').Router();
 const { authenticate } = require('../middleware/auth');
+const { parsePagination, validateUuid } = require('../middleware/validation');
 
 module.exports = (pgPool, redis) => {
   const TRADE_TYPES = [0, 1];
@@ -165,7 +166,11 @@ module.exports = (pgPool, redis) => {
   // Get recent trades for an account
   router.get('/trades/:accountId', authenticate, async (req, res) => {
     const { accountId } = req.params;
-    const { limit = 50, offset = 0 } = req.query;
+    const { limit, offset } = parsePagination(req.query.limit, req.query.offset, 200, 50);
+
+    if (!validateUuid(accountId)) {
+      return res.status(400).json({ error: 'Invalid account id format' });
+    }
     
     try {
       // Verify ownership
@@ -185,7 +190,7 @@ module.exports = (pgPool, redis) => {
            AND type = ANY($4::int[])
          ORDER BY time DESC 
          LIMIT $2 OFFSET $3`,
-        [accountId, parseInt(limit), parseInt(offset), TRADE_TYPES]
+        [accountId, limit, offset, TRADE_TYPES]
       );
       
       // Get total count
@@ -197,8 +202,8 @@ module.exports = (pgPool, redis) => {
       res.json({
         trades: result.rows,
         total: parseInt(countResult.rows[0].count),
-        limit: parseInt(limit),
-        offset: parseInt(offset)
+        limit,
+        offset
       });
     } catch (e) {
       console.error('Error fetching trades:', e);
@@ -227,6 +232,10 @@ module.exports = (pgPool, redis) => {
         );
         accountResult.rows.forEach((row) => accountIds.push(row.id));
       } else {
+        if (!validateUuid(accountId)) {
+          return res.status(400).json({ error: 'Invalid account id format' });
+        }
+
         const check = await pgPool.query(
           'SELECT id FROM "MT5Account" WHERE id = $1 AND user_id = $2',
           [accountId, req.userId]

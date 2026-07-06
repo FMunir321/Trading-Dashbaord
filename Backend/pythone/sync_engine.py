@@ -21,6 +21,7 @@ DB_DSN = os.getenv('DATABASE_URL')
 REDIS_URL = os.getenv('REDIS_URL', 'redis://localhost:6379')
 SYNC_INTERVAL = int(os.getenv('SYNC_INTERVAL', 10))
 ENCRYPTION_KEY = os.getenv('ENCRYPTION_KEY', '01234567890123456789012345678901')
+MT5_TERMINAL_PATH = os.getenv('MT5_TERMINAL_PATH', '').strip()
 
 # Setup logging
 logging.basicConfig(
@@ -34,6 +35,49 @@ SELL_TYPE = getattr(mt5, 'DEAL_TYPE_SELL', 1)
 ALLOWED_TRADE_TYPES = {BUY_TYPE, SELL_TYPE}
 HAS_CURRENT_BALANCE_COLUMN = None
 HAS_NICKNAME_COLUMN = None
+
+
+def resolve_mt5_terminal_path():
+    if MT5_TERMINAL_PATH:
+        return MT5_TERMINAL_PATH
+
+    common_paths = [
+        r'C:\Program Files\MetaTrader 5\terminal64.exe',
+        r'C:\Program Files (x86)\MetaTrader 5\terminal64.exe',
+    ]
+
+    for candidate in common_paths:
+        if os.path.exists(candidate):
+            return candidate
+
+    return None
+
+
+def initialize_mt5_session(login, password, server):
+    terminal_path = resolve_mt5_terminal_path()
+    init_kwargs = {
+        'login': int(login),
+        'password': password,
+        'server': server,
+    }
+
+    if terminal_path:
+        initialized = mt5.initialize(terminal_path, **init_kwargs)
+        if initialized:
+            logger.info(f"Initialized MT5 terminal at {terminal_path}")
+            return True
+
+        logger.warning(
+            f"MT5 initialize with explicit path failed: {mt5.last_error()} (path={terminal_path})"
+        )
+
+    initialized = mt5.initialize(**init_kwargs)
+    if initialized:
+        logger.info("Initialized MT5 terminal using MetaTrader5 auto-discovery")
+        return True
+
+    logger.error(f"MT5 initialization failed: {mt5.last_error()}")
+    return False
 
 
 def _derive_key_and_iv(password, salt, key_length=32, iv_length=16):
@@ -280,13 +324,12 @@ def sync_account(account):
         logger.error(f"Failed to decrypt password for account {login}")
         return
     
-    if not mt5.initialize():
-        logger.error("MT5 initialization failed")
+    if not initialize_mt5_session(login, password, server):
         return
-    
+
     authorized = mt5.login(login, password, server)
     if not authorized:
-        logger.error(f"MT5 login failed for {login}@{server}")
+        logger.error(f"MT5 login failed for {login}@{server}: {mt5.last_error()}")
         mt5.shutdown()
         return
 

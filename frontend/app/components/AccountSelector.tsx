@@ -1,16 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-
-export interface Account {
-  id?: string;
-  account_id?: string;
-  login: number;
-  broker_name?: string;
-  server?: string;
-  total_profit?: number;
-  total_trades?: number;
-}
+import type { Account } from '@/app/types';
 
 interface AccountSelectorProps {
   accounts: Account[];

@@ -1,10 +1,27 @@
 const router = require('express').Router();
 const { authenticate } = require('../middleware/auth');
-const { encrypt, decrypt } = require('../utils/encryption');
+const { encrypt } = require('../utils/encryption');
+const {
+  validatePositiveInt,
+  validateUuid,
+  sanitizeAccountPayload,
+} = require('../middleware/validation');
 
-module.exports = (pgPool) => {
+module.exports = (pgPool, redis) => {
   let hasCurrentBalanceColumnPromise;
   let hasNicknameColumnPromise;
+
+  const invalidateDashboardCache = async (userId) => {
+    if (!redis || !userId) {
+      return;
+    }
+
+    try {
+      await redis.del(`dashboard:${userId}`);
+    } catch (error) {
+      console.warn('Failed to invalidate dashboard cache:', error.message);
+    }
+  };
 
   const hasCurrentBalanceColumn = async () => {
     if (!hasCurrentBalanceColumnPromise) {
@@ -66,9 +83,10 @@ module.exports = (pgPool) => {
 
   // Add new MT5 account
   router.post('/', authenticate, async (req, res) => {
-    const { login, password, server, broker_name, investor_mode, nickname } = req.body;
+    const payload = sanitizeAccountPayload(req.body);
+    const { login, password, server, broker_name, investor_mode, nickname } = payload;
     
-    if (!login || !password || !server) {
+    if (!validatePositiveInt(login) || !password || !server) {
       return res.status(400).json({ error: 'Login, password, and server are required' });
     }
 
@@ -93,6 +111,8 @@ module.exports = (pgPool) => {
         insertQuery,
         insertParams
       );
+
+      await invalidateDashboardCache(req.userId);
       
       res.status(201).json(result.rows[0]);
     } catch (e) {
@@ -106,20 +126,24 @@ module.exports = (pgPool) => {
 
   // Delete an account
   router.delete('/:id', authenticate, async (req, res) => {
-    const { id } = req.params;
+    const id = typeof req.params.id === 'string' ? req.params.id.trim() : '';
+
+    if (!validateUuid(id)) {
+      return res.status(400).json({ error: 'Invalid account id format' });
+    }
     
     try {
-      // Verify ownership
-      const check = await pgPool.query(
-        'SELECT id FROM "MT5Account" WHERE id = $1 AND user_id = $2',
+      const deleteResult = await pgPool.query(
+        'DELETE FROM "MT5Account" WHERE id = $1 AND user_id = $2 RETURNING id',
         [id, req.userId]
       );
-      
-      if (check.rows.length === 0) {
-        return res.status(404).json({ error: 'Account not found' });
+
+      if (deleteResult.rowCount === 0) {
+        await invalidateDashboardCache(req.userId);
+        return res.json({ success: true, message: 'Account already removed' });
       }
-      
-      await pgPool.query('DELETE FROM "MT5Account" WHERE id = $1', [id]);
+
+      await invalidateDashboardCache(req.userId);
       res.json({ success: true, message: 'Account deleted' });
     } catch (e) {
       console.error('Error deleting account:', e);

@@ -1,10 +1,9 @@
 ﻿'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { fetchDashboardData, fetchAccountTrades, fetchAccounts, addAccount as addAccountApi, deleteAccount as deleteAccountApi, type Account as ApiAccount, type Trade } from '@/app/lib/api';
+import { fetchDashboardData, fetchAccountTrades, fetchAccounts, addAccount as addAccountApi, deleteAccount as deleteAccountApi, type Trade } from '@/app/lib/api';
 import { useUser } from '@/app/context/UserContext';
-
-export interface Account extends ApiAccount {}
+import type { Account } from '@/app/types';
 
 export interface DashboardSummaryMetrics {
   totalBalance: number;
@@ -33,6 +32,11 @@ export function useDashboard() {
       message.includes('invalid token') ||
       message.includes('authorization token required')
     );
+  };
+
+  const isNotFoundError = (value: unknown) => {
+    const message = value instanceof Error ? value.message.toLowerCase() : '';
+    return message.includes('account not found');
   };
 
   // Load accounts from backend
@@ -149,6 +153,12 @@ export function useDashboard() {
           return;
         }
         if (active) {
+          if (isNotFoundError(tradeErr)) {
+            setSelectedAccountId(null);
+            if (typeof window !== 'undefined') {
+              localStorage.removeItem(LAST_ACCOUNT_KEY);
+            }
+          }
           setTrades([]);
         }
       }
@@ -247,31 +257,26 @@ export function useDashboard() {
     try {
       await deleteAccountApi(accountId, token);
 
-      setAccounts((prevAccounts) => {
-        const updatedAccounts = prevAccounts.filter(
-          (account) => (account.id || account.account_id) !== accountId
-        );
+      const updatedAccounts = accounts.filter(
+        (account) => (account.id || account.account_id) !== accountId
+      );
+      const deletingSelectedAccount = selectedAccountId === accountId;
+      const nextAccount = deletingSelectedAccount ? updatedAccounts[0] : null;
+      const nextAccountId = nextAccount ? nextAccount.id || nextAccount.account_id || null : selectedAccountId;
 
-        if (selectedAccountId === accountId) {
-          const nextAccount = updatedAccounts[0];
-          const nextAccountId = nextAccount ? nextAccount.id || nextAccount.account_id || null : null;
-          setSelectedAccountId(nextAccountId);
+      setAccounts(updatedAccounts);
+      setSelectedAccountId(nextAccountId ?? null);
+      setTrades([]);
 
-          if (typeof window !== 'undefined') {
-            if (nextAccountId) {
-              localStorage.setItem(LAST_ACCOUNT_KEY, nextAccountId);
-            } else {
-              localStorage.removeItem(LAST_ACCOUNT_KEY);
-            }
-          }
-
-          if (!nextAccountId) {
-            setTrades([]);
-          }
+      if (typeof window !== 'undefined') {
+        if (nextAccountId) {
+          localStorage.setItem(LAST_ACCOUNT_KEY, nextAccountId);
+        } else {
+          localStorage.removeItem(LAST_ACCOUNT_KEY);
         }
+      }
 
-        return updatedAccounts;
-      });
+      await loadAccounts();
 
       return true;
     } catch (err) {

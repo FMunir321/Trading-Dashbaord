@@ -1,23 +1,30 @@
-﻿const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
+﻿import type { Account } from '@/app/types';
 
-export interface Account {
-  id?: string;
-  account_id?: string;
-  login: number;
-  nickname?: string | null;
-  balance?: number;
-  current_balance?: number;
-  status?: string;
-  daily_pnl?: Record<string, number | string>;
-  monthly_pnl?: Record<string, number | string>;
-  server?: string;
-  broker_name?: string;
-  total_profit?: number;
-  total_trades?: number;
-  winning_trades?: number;
-  losing_trades?: number;
-  win_rate?: number;
+const RAW_API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
+
+function resolveApiUrl() {
+  if (typeof window === 'undefined') {
+    return RAW_API_URL;
+  }
+
+  try {
+    const parsed = new URL(RAW_API_URL);
+    const isLocalApiHost = parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1';
+    const currentHost = window.location.hostname;
+    const isBrowserOnLan = currentHost !== 'localhost' && currentHost !== '127.0.0.1';
+
+    if (isLocalApiHost && isBrowserOnLan) {
+      parsed.hostname = currentHost;
+      return parsed.toString().replace(/\/$/, '');
+    }
+
+    return RAW_API_URL;
+  } catch {
+    return RAW_API_URL;
+  }
 }
+
+const API_URL = resolveApiUrl();
 
 export interface Trade {
   id: number;
